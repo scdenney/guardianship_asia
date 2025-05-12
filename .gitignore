@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.html
+*.pdf
+*.docx
+*.xlsx
+*.csv
+.DS_Store
+
