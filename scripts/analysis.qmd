@@ -4,6 +4,7 @@ format: html
 editor: visual
 ---
 
+## System support
 ```{r}
 #| echo: false
 
@@ -194,7 +195,7 @@ ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height
 
 ```
 
-## Guardianship
+## Guardianship support
 
 ```{r}
 
@@ -317,7 +318,7 @@ ggsave("figures/guardianship_types.pdf", plot = guardianship_types, device = "pd
 
 ```
 
-## Generations fig.
+## Generational analysis
 
 ```{r}
 
