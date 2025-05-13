@@ -3,6 +3,17 @@ title: "demo_kor"
 format: html
 editor: visual
 ---
+## Overview
+
+This file analyzes support for guardianship democracy in five East and Southeast Asian democracies (Taiwan, South Korea, Indonesia, the Philippines, and Mongolia), using World Values Survey (WVS) and V-Dem data. It includes four main sections:
+
+- **System Support**: Measures weighted support for four regime types (democracy, rule by experts, military rule, strong leader) across countries and time, highlighting liberal democracies. `@fig-wvs-support`
+- **V-Dem (Electoral)**: Visualizes changes in the V-Dem Electoral Democracy Index (v2x_polyarchy) from 1945 to 2020 for the five focal countries. `@fig-vdem-plot`
+- **Guardianship Support**: Calculates and plots co-endorsement of democracy with each elite-led alternative (Dahlian, military, strongman) to capture guardianship democracy variants. `@fig-guardianship`
+- **Generational Analysis**: Classifies respondents into political generations based on democratic transitions and examines age- and generation-based differences in regime support. `@fig-gen-plot`
+
+All plots use post-stratification weights and highlight the five focal cases with distinct colors. Figures are saved to the `figures/` folder for integration into the manuscript.
+
 
 ## Load libraries ad data
 
@@ -145,6 +156,7 @@ wvs_ea_all <- ggplot() +
   ) +
   facet_wrap(~Variable_Label)
 
+#| label: fig-wvs-support
 ggsave("figures/wvs_ea_all.pdf", plot = wvs_ea_all, device = "pdf", width = 10, height = 7, dpi = 300)
 
 
@@ -193,8 +205,8 @@ electoral_plot <- ggplot(vdem_cases, aes(x = year, y = v2x_polyarchy, color = CO
     panel.grid.minor = element_blank()
   )
 
-# Save the plot
-#ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height = 5, dpi = 300)
+#| label: fig-vdem-plot
+ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height = 5, dpi = 300)
 
 
 ```
@@ -326,7 +338,7 @@ guardianship_types <- ggplot() +
   ) +
   facet_wrap(~Measure)
 
-# Save figure
+#| label: fig-guardianship
 ggsave("figures/guardianship_types.pdf", plot = guardianship_types, device = "pdf", width = 10, height = 7, dpi = 300)
 
 
@@ -452,6 +464,7 @@ gen_guardianship <- ggplot(wvs_gen_summary, aes(x = AGE_BIN, y = Proportion, col
         panel.spacing.x = unit(c(1.25, 0.25, 0.25), "lines")
     )
 
+#| label: fig-gen-plot
 ggsave("figures/gen_guardianship.pdf", plot = gen_guardianship, device = "pdf", width = 12, height = 10, dpi = 300)
 
 
