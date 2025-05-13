@@ -1,44 +1,63 @@
 ---
-title: "Guardianship Asia"
+title: "demo_kor"
 format: html
 editor: visual
 ---
 
-## System support
+## Load libraries ad data
+
 ```{r}
-#| echo: false
 
-# load data WVS time series data, then:
-wvsdf = `WVS_Time_Series_1981-2022_rds_v5_0`
-wvsdf <- haven::zap_labels(wvsdf)
-
-# Load required libraries
 library(dplyr)
 library(ggplot2)
 library(scales)
 library(stringr)
 library(vdemdata)
-library(reshape2)
 library(tidyr)
+library(ggthemes)
+library(forcats)
 
-# Variables to analyze
+# Load WVS data and tidy
+wvsdf <- `WVS_Time_Series_1981-2022_rds_v5_0` %>% haven::zap_labels()
+
+
+```
+
+## System support
+
+```{r}
+
+#| echo: false
+
+# Recode binary evaluations for "very good" or "fairly good" (1/2)
+# E114 = Strong Leader
+# E115 = Rule by Experts
+# E116 = Military Rule
+# E117 = Democracy
 binary_cols <- c("E114", "E115", "E116", "E117")
+weight_col <- "S017"
 
-# Recode variables to binary (1 = "Very good" or "Fairly good", 0 otherwise)
-wvsdf <- wvsdf %>%
+wvs_eval <- wvsdf %>%
   mutate(across(all_of(binary_cols), ~ ifelse(. %in% c(1, 2), 1, 0)))
 
-# Ensure weight column exists (adjust 'S017' if your dataset has a different weight variable)
-weight_col <- "S017"  # Adjust this if necessary
+# Add V-Dem regime classification
+latest_year <- max(vdem$year, na.rm = TRUE)
+vdem_classification <- vdem %>%
+  filter(year == latest_year) %>%
+  select(COUNTRY_ALPHA = country_text_id, v2x_regime) %>%
+  mutate(regime_category = if_else(v2x_regime == 3, "Liberal Democracy", "Other"))
 
-# Calculate weighted proportions by country and year
-proportions <- wvsdf %>%
+wvs_eval <- wvs_eval %>%
+  left_join(vdem_classification, by = "COUNTRY_ALPHA")
+
+# Calculate weighted proportions
+proportions <- wvs_eval %>%
   filter(!is.na(S020)) %>%
   group_by(COUNTRY_ALPHA, S020) %>%
   summarise(
     across(
       all_of(binary_cols),
-      ~ sum(.x * .data[[weight_col]], na.rm = TRUE) / sum(.data[[weight_col]][!is.na(.x)], na.rm = TRUE),
+      ~ if (sum(!is.na(.x)) == 0) NA_real_ else weighted.mean(.x, w = .data[[weight_col]], na.rm = TRUE),
       .names = "Proportion_{col}"
     ),
     .groups = "drop"
@@ -60,71 +79,63 @@ proportions <- wvsdf %>%
     )
   )
 
-# Add a highlight based on country
-proportions <- proportions %>%
-  mutate(highlight = case_when(
-    COUNTRY_ALPHA == "KOR" ~ "South Korea",
-    COUNTRY_ALPHA == "TWN" ~ "Taiwan",
-    COUNTRY_ALPHA == "IDN" ~ "Indonesia",
-    COUNTRY_ALPHA == "MNG" ~ "Mongolia",
-    COUNTRY_ALPHA == "PHL" ~ "Philippines",
-    TRUE ~ "Other Countries"
-  ))
+# Add highlight group
+highlight_map <- wvs_eval %>%
+  select(COUNTRY_ALPHA, regime_category) %>%
+  distinct()
 
-# Define colors for the plot
+proportions <- proportions %>%
+  left_join(highlight_map, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    group_type = case_when(
+      COUNTRY_ALPHA == "KOR" ~ "South Korea",
+      COUNTRY_ALPHA == "TWN" ~ "Taiwan",
+      COUNTRY_ALPHA == "IDN" ~ "Indonesia",
+      COUNTRY_ALPHA == "MNG" ~ "Mongolia",
+      COUNTRY_ALPHA == "PHL" ~ "Philippines",
+      regime_category == "Liberal Democracy" ~ "Liberal Democracy",
+      TRUE ~ "Other"
+    ),
+    Variable_Label = factor(
+      Variable_Label,
+      levels = c("Democracy Good", "Experts Rule", "Army Rule", "Strong Leader")
+    )
+  )
+
+# Color Definitions (excluding Liberal Democracy from legend)
 highlight_colors <- c(
-  "South Korea" = "#e63946",   # Bold red (flag color)
-  "Taiwan"      = "#457b9d",   # Deep blue
-  "Indonesia"   = "#f4a261",   # Warm orange
-  "Mongolia"    = "#2a9d8f",   # Jade green
-  "Philippines" = "#ffca3a",   # Sun yellow
-  "Other Countries" = "lightgrey"
+  "South Korea" = "#e63946",
+  "Taiwan"      = "#457b9d",
+  "Indonesia"   = "#f4a261",
+  "Mongolia"    = "#2a9d8f",
+  "Philippines" = "#ffca3a"
 )
 
-# Reorder the levels of the 'highlight' variable to control legend order
-# Compute order of highlights by "Democracy Good" mean
-proportions <- proportions %>%
-  mutate(highlight = factor(highlight, levels = c(
-    "Taiwan",
-    "Mongolia",
-    "Indonesia",
-    "Philippines",
-    "South Korea",
-    "Other Countries"
-  )))
-
-# Reorder facet panels
-proportions <- proportions %>%
-  mutate(Variable_Label = factor(
-    Variable_Label,
-    levels = c("Democracy Good", "Experts Rule", "Army Rule", "Strong Leader")
-  ))
-
-## Plot
+# Plot 
 wvs_ea_all <- ggplot() +
   geom_line(
-    data = proportions %>% filter(highlight == "Other Countries"),
+    data = proportions %>% filter(group_type == "Liberal Democracy"),
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Variable_Label)),
-    color = "lightgrey", size = 0.8, alpha = 0.4
+    color = "#64a3cb", size = 0.8, alpha = 0.6, show.legend = FALSE
   ) +
   geom_line(
-    data = proportions %>% filter(highlight != "Other Countries"),
-    aes(x = S020, y = Proportion, color = highlight, group = interaction(COUNTRY_ALPHA, Variable_Label)),
+    data = proportions %>% filter(group_type == "Other"),
+    aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Variable_Label)),
+    color = "lightgrey", size = 0.8, alpha = 0.3, show.legend = FALSE
+  ) +
+  geom_line(
+    data = proportions %>% filter(group_type %in% names(highlight_colors)),
+    aes(x = S020, y = Proportion, color = group_type, group = interaction(COUNTRY_ALPHA, Variable_Label)),
     size = 1.2
   ) +
   geom_point(
-    data = proportions %>% filter(highlight != "Other Countries"),
-    aes(x = S020, y = Proportion, color = highlight),
+    data = proportions %>% filter(group_type %in% names(highlight_colors)),
+    aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
   scale_color_manual(values = highlight_colors) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  labs(
-    #title = "Trends in Proportion of 'Very Good' or 'Fairly Good' Ratings by Year",
-    #subtitle = "South Korea in Red; Other Key Asian Countries Colored; All Others in Grey",
-    x = "Survey Year",
-    y = "Proportion (%)"
-  ) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(x = "Survey Year", y = "Proportion (%)") +
   theme_minimal() +
   theme(
     legend.position = "bottom",
@@ -142,13 +153,6 @@ ggsave("figures/wvs_ea_all.pdf", plot = wvs_ea_all, device = "pdf", width = 10, 
 ## V-dem (electoral)
 
 ```{r}
-# Load required libraries
-library(dplyr)
-library(ggplot2)
-library(scales)
-library(ggthemes)
-library(forcats)
-library(vdemdata)
 
 
 # Prepare V-Dem subset and relabel countries directly from country_name
@@ -190,7 +194,7 @@ electoral_plot <- ggplot(vdem_cases, aes(x = year, y = v2x_polyarchy, color = CO
   )
 
 # Save the plot
-ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height = 5, dpi = 300)
+#ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height = 5, dpi = 300)
 
 
 ```
@@ -199,122 +203,133 @@ ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height
 
 ```{r}
 
-# Recode and calculate guardianship measures (waves 3+ only)
+# Recode (drop cases that don't qualify as endorsements)
 wvs_guardianship <- wvsdf %>%
   filter(S002VS >= 3) %>%
-  mutate(
-    E114_rec = ifelse(E114 %in% c(1, 2), 1, 0),  # Strong Leader
-    E115_rec = ifelse(E115 %in% c(1, 2), 1, 0),  # Experts Rule
-    E116_rec = ifelse(E116 %in% c(1, 2), 1, 0),  # Army Rule
-    E117_rec = ifelse(E117 %in% c(1, 2), 1, 0)   # Democracy
-  ) %>%
+mutate(
+  E114_pair = ifelse(!is.na(E114) & !is.na(E117), 
+                     ifelse(E114 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
+                     NA_real_),
+  E115_pair = ifelse(!is.na(E115) & !is.na(E117), 
+                     ifelse(E115 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
+                     NA_real_),
+  E116_pair = ifelse(!is.na(E116) & !is.na(E117), 
+                     ifelse(E116 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
+                     NA_real_)
+)
+
+# Summarise weighted proportions
+wvs_guardianship <- wvs_guardianship %>%
   group_by(COUNTRY_ALPHA, S020) %>%
   summarise(
-    Dahlian_Guardianship = sum(E117_rec * E115_rec * S017, na.rm = TRUE) /
-      sum(S017[!is.na(E117_rec) & !is.na(E115_rec)], na.rm = TRUE),
-
-    Strongman_Guardianship = sum(E117_rec * E114_rec * S017, na.rm = TRUE) /
-      sum(S017[!is.na(E117_rec) & !is.na(E114_rec)], na.rm = TRUE),
-
-    Military_Guardianship = sum(E117_rec * E116_rec * S017, na.rm = TRUE) /
-      sum(S017[!is.na(E117_rec) & !is.na(E116_rec)], na.rm = TRUE),
-
-    Respondents = sum(!is.na(E117_rec) & !is.na(S017)),
+    Dahlian_Guardianship   = weighted.mean(E115_pair, w = S017, na.rm = TRUE),
+    Strongman_Guardianship = weighted.mean(E114_pair, w = S017, na.rm = TRUE),
+    Military_Guardianship  = weighted.mean(E116_pair, w = S017, na.rm = TRUE),
+    Respondents = sum(!is.na(S017) & !is.na(E117)),  # Optional
     .groups = "drop"
   )
 
-# Reshape to long format and relabel
+# Reshape to long format
 guardianship_long <- wvs_guardianship %>%
   pivot_longer(
     cols = c("Dahlian_Guardianship", "Strongman_Guardianship", "Military_Guardianship"),
     names_to = "Measure", values_to = "Proportion"
   ) %>%
+  filter(!is.na(Proportion) & Proportion > 0) %>%  # ✅ drop 0s and NAs
   mutate(
     Measure = recode(Measure,
-      "Dahlian_Guardianship" = "Dahlian Guardianship",
+      "Dahlian_Guardianship"   = "Dahlian Guardianship",
       "Strongman_Guardianship" = "Strongman Guardianship",
-      "Military_Guardianship" = "Military Guardianship"
+      "Military_Guardianship"  = "Military Guardianship"
     )
   )
 
-# Step 3: Add highlight categories
-highlight_colors <- c(
-  "South Korea" = "#e63946",
-  "Taiwan" = "#457b9d",
-  "Indonesia" = "#f4a261",
-  "Mongolia" = "#2a9d8f",
-  "Philippines" = "#ffca3a",
-  "Other Countries" = "lightgrey"
-)
 
-focal_countries <- names(highlight_colors)[names(highlight_colors) != "Other Countries"]
+# Add V-Dem regime classification
+latest_year <- max(vdem$year, na.rm = TRUE)
+vdem_classification <- vdem %>%
+  filter(year == latest_year) %>%
+  select(COUNTRY_ALPHA = country_text_id, country_name, v2x_regime) %>%
+  mutate(regime_category = if_else(v2x_regime == 3, "Liberal Democracy", "Other"))
 
-# Assign highlight variable
+# Merge V-Dem classification
 guardianship_long <- guardianship_long %>%
+  left_join(vdem_classification, by = "COUNTRY_ALPHA") %>%
   mutate(
-    highlight = case_when(
+    group_type = case_when(
       COUNTRY_ALPHA == "KOR" ~ "South Korea",
       COUNTRY_ALPHA == "TWN" ~ "Taiwan",
       COUNTRY_ALPHA == "IDN" ~ "Indonesia",
       COUNTRY_ALPHA == "MNG" ~ "Mongolia",
       COUNTRY_ALPHA == "PHL" ~ "Philippines",
-      TRUE ~ "Other Countries"
+      regime_category == "Liberal Democracy" ~ "Liberal Democracy",
+      TRUE ~ "Other"
     )
   )
 
-# Step 4: Order legend by most recent final Strongman Guardianship value
+# Define highlight ordering by most recent Strongman Guardianship level
+focal_countries <- c("South Korea", "Taiwan", "Indonesia", "Mongolia", "Philippines")
+
 highlight_order <- guardianship_long %>%
-  filter(Measure == "Strongman Guardianship", highlight %in% focal_countries) %>%
-  group_by(highlight) %>%
+  filter(Measure == "Strongman Guardianship", group_type %in% focal_countries) %>%
+  group_by(group_type) %>%
   filter(S020 == max(S020, na.rm = TRUE)) %>%
   ungroup() %>%
   arrange(desc(Proportion)) %>%
-  pull(highlight)
+  pull(group_type)
 
-# Ensure all focal countries are included
 highlight_order <- c(highlight_order, setdiff(focal_countries, highlight_order))
 
-# Reorder factor levels
-guardianship_long <- guardianship_long %>%
-  mutate(highlight = factor(highlight, levels = c(highlight_order, "Other Countries")))
+# Define custom colors
+highlight_colors <- c(
+  "South Korea" = "#e63946",
+  "Taiwan"      = "#355d7f",   # distinguishable from liberal democracy
+  "Indonesia"   = "#f4a261",
+  "Mongolia"    = "#2a9d8f",
+  "Philippines" = "#ffca3a"
+)
 
-# Reorder and subset colors
-plot_colors <- highlight_colors[names(highlight_colors) %in% highlight_order]
-
-# Step 5: Plot
+# Plot guardianship measures
 guardianship_types <- ggplot() +
   geom_line(
-    data = guardianship_long %>% filter(highlight == "Other Countries"),
+    data = guardianship_long %>% filter(group_type == "Liberal Democracy"),
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Measure)),
-    color = "lightgrey", size = 0.8, alpha = 0.4
+    color = "#64a3cb", size = 0.8, alpha = 0.6, show.legend = FALSE
   ) +
   geom_line(
-    data = guardianship_long %>% filter(highlight != "Other Countries"),
-    aes(x = S020, y = Proportion, color = highlight, group = interaction(COUNTRY_ALPHA, Measure)),
+    data = guardianship_long %>% filter(group_type == "Other"),
+    aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Measure)),
+    color = "lightgrey", size = 0.8, alpha = 0.3, show.legend = FALSE
+  ) +
+  geom_line(
+    data = guardianship_long %>% filter(group_type %in% names(highlight_colors)),
+    aes(x = S020, y = Proportion, color = group_type, group = interaction(COUNTRY_ALPHA, Measure)),
     size = 1.2
   ) +
   geom_point(
-    data = guardianship_long %>% filter(highlight != "Other Countries"),
-    aes(x = S020, y = Proportion, color = highlight),
+    data = guardianship_long %>% filter(group_type %in% names(highlight_colors)),
+    aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
-  scale_color_manual(values = plot_colors, guide = guide_legend(title = NULL)) +
-  facet_wrap(~Measure, scales = "fixed") +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_color_manual(values = highlight_colors) +
+  scale_y_continuous(labels = percent_format()) +
   labs(
-    #title = "Support for Forms of Guardianship Democracy (WVS Waves 4–7)",
-    #subtitle = "Legend ordered by final Strongman Guardianship value per country",
     x = "Survey Year",
-    y = "Proportion"
+    y = "Proportion (%)"
   ) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
+    legend.title = element_blank(),
     strip.text = element_text(face = "bold"),
     axis.text.x = element_text(angle = 45, hjust = 1)
-  )
+  ) +
+  facet_wrap(~Measure)
 
+# Save figure
 ggsave("figures/guardianship_types.pdf", plot = guardianship_types, device = "pdf", width = 10, height = 7, dpi = 300)
+
+
 
 ```
 
