@@ -14,3 +14,5 @@ More folders and content will be added as the project develops.
 ## Data
 
 Inglehart, R., C. Haerpfer, A. Moreno, C. Welzel, K. Kizilova, J. Diez-Medrano, M. Lagos, P. Norris, E. Ponarin & B. Puranen (eds.). 2022. World Values Survey: All Rounds - Country-Pooled Datafile. Madrid, Spain & Vienna, Austria: JD Systems Institute & WVSA Secretariat. Dataset Version 3.0.0. doi:10.14281/18241.17
+
+Maerz, Seraphine F., Amanda B. Edgell, Sebastian Hellemeier, Nina Ilchenko, and Linnea Fox. 2025. "vdemdata: An R Package to Load, Explore and Work with the Most Recent V-Dem (Varieties of Democracy) Dataset." https://github.com/vdeminstitute/vdemdata.
