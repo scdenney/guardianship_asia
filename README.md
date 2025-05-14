@@ -4,7 +4,7 @@ This repository contains code and outputs for the project *Guardianship Asia*, a
 
 ## Structure
 
-- `scripts/`: Contains R-based Quarto (`.qmd`) files used for analysis and visualization. All scripts are designed for execution in RStudio.
+- `scripts/`: Contains R-based Quarto (`.qmd`) file used for analysis and visualization. All scripts are designed for execution in RStudio.
 - `figures/`: Output directory for plots, graphs, and visualizations used in the manuscript.
 - `draft/`: Latest manuscript draft.
 - `data/` (not included in this repository): The main dataset used is ‘WVS_Time_Series_1981-2022_rds_v5_0’, available from the [World Values Survey](https://www.worldvaluessurvey.org/).
