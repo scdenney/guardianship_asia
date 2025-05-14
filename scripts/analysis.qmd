@@ -16,7 +16,7 @@ This file analyzes support for guardianship democracy in six East and Southeast 
 
 All plots use post-stratification weights and highlight the six focal cases with distinct colors. Figures are saved to the `figures/` folder for integration into the manuscript.
 
-## Load libraries ad data
+## Load libraries and data
 
 ```{r}
 
