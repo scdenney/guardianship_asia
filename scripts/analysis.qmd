@@ -3,17 +3,18 @@ title: "guardianship asia"
 format: html
 editor: visual
 ---
+
 ## Overview
 
-This file analyzes support for guardianship democracy in five East and Southeast Asian democracies (Taiwan, South Korea, Indonesia, the Philippines, and Mongolia), using World Values Survey (WVS) and V-Dem data. It includes four main sections:
+This file analyzes support for guardianship democracy in six East and Southeast Asian democracies (Japan, the Philippines, South Korea, Taiwan, Mongolia, and Indonesia), using World Values Survey (WVS) and Varitaies of Democracy (V-dem) data. It includes five main sections:
 
-- **System Support**: Measures weighted support for four regime types (democracy, rule by experts, military rule, strong leader) across countries and time, highlighting liberal democracies. `@fig-wvs-support`
-- **V-Dem (Electoral)**: Visualizes changes in the V-Dem Electoral Democracy Index (v2x_polyarchy) from 1945 to 2020 for the five focal countries. `@fig-vdem-plot`
-- **Guardianship Support**: Calculates and plots co-endorsement of democracy with each elite-led alternative (Dahlian, military, strongman) to capture guardianship democracy variants. `@fig-guardianship`
-- **Generational Analysis**: Classifies respondents into political generations based on democratic transitions and examines age- and generation-based differences in regime support. `@fig-gen-plot`
+-   **System Support**: Measures weighted support for four regime types (democracy, rule by experts, military rule, strong leader) across countries and time, highlighting liberal democracies. `@fig-wvs-support`
+-   **V-Dem (Electoral)**: Visualizes changes in the V-Dem Electoral Democracy Index (v2x_polyarchy) from 1945 to 2020 for the five focal countries. `@fig-vdem-plot`
+-   **Guardianship Support**: Calculates and plots co-endorsement of democracy with each elite-led alternative (Dahlian, military, strongman) to capture guardianship democracy variants. `@fig-guardianship`
+-   **Generational Analysis**: Classifies respondents into political generations based on democratic transitions and examines age- and generation-based differences in regime support. `@fig-gen-plot`
+-   **Emancipative values**: Analyzes political values using the Emancipative Values Index (EVI) for democratic generations across cases. `@fig-gen-eman-plot`
 
-All plots use post-stratification weights and highlight the five focal cases with distinct colors. Figures are saved to the `figures/` folder for integration into the manuscript.
-
+All plots use post-stratification weights and highlight the six focal cases with distinct colors. Figures are saved to the `figures/` folder for integration into the manuscript.
 
 ## Load libraries ad data
 
@@ -45,6 +46,7 @@ wvsdf <- `WVS_Time_Series_1981-2022_rds_v5_0` %>% haven::zap_labels()
 # E115 = Rule by Experts
 # E116 = Military Rule
 # E117 = Democracy
+
 binary_cols <- c("E114", "E115", "E116", "E117")
 weight_col <- "S017"
 
@@ -69,10 +71,8 @@ proportions <- wvs_eval %>%
     across(
       all_of(binary_cols),
       ~ if (sum(!is.na(.x)) == 0) NA_real_ else weighted.mean(.x, w = .data[[weight_col]], na.rm = TRUE),
-      .names = "Proportion_{col}"
-    ),
-    .groups = "drop"
-  ) %>%
+      .names = "Proportion_{col}"),
+    .groups = "drop") %>%
   pivot_longer(
     cols = starts_with("Proportion_"),
     names_to = "Variable",
@@ -104,6 +104,7 @@ proportions <- proportions %>%
       COUNTRY_ALPHA == "IDN" ~ "Indonesia",
       COUNTRY_ALPHA == "MNG" ~ "Mongolia",
       COUNTRY_ALPHA == "PHL" ~ "Philippines",
+      COUNTRY_ALPHA == "JPN" ~ "Japan",
       regime_category == "Liberal Democracy" ~ "Liberal Democracy",
       TRUE ~ "Other"
     ),
@@ -119,10 +120,21 @@ highlight_colors <- c(
   "Taiwan"      = "#457b9d",
   "Indonesia"   = "#f4a261",
   "Mongolia"    = "#2a9d8f",
-  "Philippines" = "#ffca3a"
+  "Philippines" = "#ffca3a",
+  "Japan"       = "#f3722c"
 )
 
-# Plot 
+# Plot
+
+# First, set desired order (for legend)
+proportions$group_type <- factor(
+  proportions$group_type,
+  levels = c(
+    "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia",
+    "Liberal Democracy", "Other"
+  )
+)
+
 wvs_ea_all <- ggplot() +
   geom_line(
     data = proportions %>% filter(group_type == "Liberal Democracy"),
@@ -144,7 +156,10 @@ wvs_ea_all <- ggplot() +
     aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
-  scale_color_manual(values = highlight_colors) +
+  scale_color_manual(
+  values = highlight_colors,
+  breaks = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")
+) +
   scale_y_continuous(labels = percent_format()) +
   labs(x = "Survey Year", y = "Proportion (%)") +
   theme_minimal() +
@@ -169,18 +184,19 @@ ggsave("figures/wvs_ea_all.pdf", plot = wvs_ea_all, device = "pdf", width = 10, 
 
 # Prepare V-Dem subset and relabel countries directly from country_name
 vdem_cases <- vdem %>%
-  filter(country_name %in% c("South Korea", "Taiwan", "Mongolia", "Indonesia", "Philippines"),
+  filter(country_name %in% c("South Korea", "Taiwan", "Mongolia", "Indonesia", "Philippines", "Japan"),
          year >= 1945, year <= 2020) %>%
   select(COUNTRY = country_name, year, v2x_polyarchy) %>%
-  mutate(COUNTRY = factor(COUNTRY, levels = c("Taiwan", "Mongolia", "Philippines", "Indonesia", "South Korea")))
+  mutate(COUNTRY = factor(COUNTRY, levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")))
 
-# Define highlight colors by country name
+# Define highlight colors by country name in correct order
 highlight_colors <- c(
+  "Japan"       = "#f3722c",
+  "Philippines" = "#ffca3a",
   "South Korea" = "#e63946",
   "Taiwan"      = "#457b9d",
-  "Indonesia"   = "#f4a261",
   "Mongolia"    = "#2a9d8f",
-  "Philippines" = "#ffca3a"
+  "Indonesia"   = "#f4a261"
 )
 
 # Generate electoral democracy plot
@@ -192,8 +208,7 @@ electoral_plot <- ggplot(vdem_cases, aes(x = year, y = v2x_polyarchy, color = CO
   labs(
     x = "Year",
     y = "Electoral Democracy Index",
-    color = "",
-    #title = "Electoral Democracy in East and Southeast Asia (1945–2020)"
+    color = ""
   ) +
   theme_light() +
   theme(
@@ -274,6 +289,7 @@ guardianship_long <- guardianship_long %>%
       COUNTRY_ALPHA == "IDN" ~ "Indonesia",
       COUNTRY_ALPHA == "MNG" ~ "Mongolia",
       COUNTRY_ALPHA == "PHL" ~ "Philippines",
+      COUNTRY_ALPHA == "JPN" ~ "Japan",
       regime_category == "Liberal Democracy" ~ "Liberal Democracy",
       TRUE ~ "Other"
     )
@@ -298,10 +314,17 @@ highlight_colors <- c(
   "Taiwan"      = "#355d7f",   # distinguishable from liberal democracy
   "Indonesia"   = "#f4a261",
   "Mongolia"    = "#2a9d8f",
-  "Philippines" = "#ffca3a"
+  "Philippines" = "#ffca3a",
+  "Japan"       = "#f3722c"
 )
 
-# Plot guardianship measures
+# Plot guardianship measures with legend order in mind
+guardianship_long$group_type <- factor(
+  guardianship_long$group_type,
+  levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Liberal Democracy", "Other")
+)
+
+
 guardianship_types <- ggplot() +
   geom_line(
     data = guardianship_long %>% filter(group_type == "Liberal Democracy"),
@@ -323,7 +346,10 @@ guardianship_types <- ggplot() +
     aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
-  scale_color_manual(values = highlight_colors) +
+  scale_color_manual(
+  values = highlight_colors,
+  breaks = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")
+) +
   scale_y_continuous(labels = percent_format()) +
   labs(
     x = "Survey Year",
@@ -360,6 +386,7 @@ assign_generations <- function(df) {
         COUNTRY_ALPHA == "MNG" ~ 1992,
         COUNTRY_ALPHA == "IDN" ~ 1998,
         COUNTRY_ALPHA == "PHL" ~ 1986,
+        COUNTRY_ALPHA == "JPN" ~ 1956,
         TRUE ~ NA_real_
       ),
 
@@ -376,14 +403,13 @@ assign_generations <- function(df) {
     )
 }
 
-
 # Preprocess and recode guardianship measures
 age_breaks <- c(seq(18, 78, by = 5), Inf)
 age_labels <- paste0(age_breaks[-length(age_breaks)], "–", age_breaks[-1] - 1)
 age_labels[length(age_labels)] <- "79+"
 
 wvs_generational <- wvsdf %>%
-    filter(COUNTRY_ALPHA %in% c("KOR", "TWN", "MNG", "IDN", "PHL")) %>%
+    filter(COUNTRY_ALPHA %in% c("KOR", "TWN", "MNG", "IDN", "PHL", "JPN")) %>%
     mutate(
         AGE = ifelse(!is.na(X003), X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA)),
         AGE_BIN = cut(
@@ -418,7 +444,7 @@ wvs_gen_summary <- wvs_generational %>%
         .groups = "drop"
     ) %>%
     pivot_longer(cols = c("Democracy", "Dahlian", "Strongman", "Military"), names_to = "Measure", values_to = "Proportion") %>%
-    filter(!is.na(Proportion), Proportion > 0.02 & Proportion < 1) %>% ## to avoid plotting noise
+    filter(!is.na(Proportion), Proportion < 1, Proportion > 0) %>% ## to avoid plotting noise
     mutate(
         Measure = recode(Measure,
                          "Democracy" = "Democracy Good",
@@ -438,7 +464,7 @@ generation_colors <- c(
 # Reorder country presentation
 wvs_gen_summary <- wvs_gen_summary %>%
   mutate(COUNTRY_ALPHA = factor(COUNTRY_ALPHA, levels = c(
-    "TWN", "MNG", "PHL", "IDN", "KOR"
+    "JPN", "PHL", "KOR", "TWN", "MNG", "IDN"
   )))
 
 # Plot
@@ -466,6 +492,181 @@ gen_guardianship <- ggplot(wvs_gen_summary, aes(x = AGE_BIN, y = Proportion, col
 
 #| label: fig-gen-plot
 ggsave("figures/gen_guardianship.pdf", plot = gen_guardianship, device = "pdf", width = 12, height = 10, dpi = 300)
+
+
+```
+
+
+## Emancipative values
+
+```{r}
+
+### Emancipative values across democratic generations       
+ 
+# Define countries and democratic generations
+countries <- c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL")
+
+democratic_generations <- list(
+  KOR = 1970:2023,  # Transition in 1987 → born ≥1970
+  TWN = 1969:2023,  # Transition in 1987 → born ≥1969
+  JPN = 1938:2023,  # Postwar constitution in 1946 → age 18 by 1956 → born ≥1938
+  IDN = 1981:2023,  # Transition in 1998 → born ≥1981
+  MNG = 1973:2023,  # Transition in 1991 → born ≥1973
+  PHL = 1970:2023,
+  DEU = 1938:2023   # Basic Law (1949) → age 18 by 1956 → born ≥1938
+)
+
+# Filter and annotate democratic generation
+wvs_eman <- wvsdf %>%
+  filter(COUNTRY_ALPHA %in% countries) %>%
+  mutate(
+    AGE = ifelse(!is.na(X003), X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA))
+  ) %>%
+  rowwise() %>%
+  mutate(Democratic_Gen = case_when(
+    COUNTRY_ALPHA == "KOR" & X002 %in% democratic_generations$KOR ~ TRUE,
+    COUNTRY_ALPHA == "TWN" & X002 %in% democratic_generations$TWN ~ TRUE,
+    COUNTRY_ALPHA == "JPN" & X002 %in% democratic_generations$JPN ~ TRUE,
+    COUNTRY_ALPHA == "IDN" & X002 %in% democratic_generations$IDN ~ TRUE,
+    COUNTRY_ALPHA == "MNG" & X002 %in% democratic_generations$MNG ~ TRUE,
+    COUNTRY_ALPHA == "PHL" & X002 %in% democratic_generations$PHL ~ TRUE,
+    COUNTRY_ALPHA == "DEU" & X002 %in% democratic_generations$DEU ~ TRUE,
+    TRUE ~ FALSE
+  )) %>%
+  ungroup() %>%
+  filter(Democratic_Gen, AGE >= 18 & AGE <= 100) %>%
+  mutate(
+  AGE_BIN = cut(
+    AGE,
+    breaks = seq(18, 98, by = 5),
+    include.lowest = TRUE,
+    right = FALSE,
+    labels = paste(seq(18, 93, by = 5), seq(22, 97, by = 5), sep = "–")
+  )
+)
+
+# Summarize by AGE_BIN and COUNTRY
+emancipation_averages <- wvs_eman %>%
+  group_by(COUNTRY_ALPHA, AGE_BIN) %>%
+  summarise(
+    Avg_Emancipation = weighted.mean(Y020, w = S017, na.rm = TRUE),
+    Respondents = sum(!is.na(Y020)),
+    .groups = "drop")
+
+# Map country codes to names
+country_names <- tibble::tibble(
+  COUNTRY_ALPHA = c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL"),
+  Country_Name = c("South Korea", "Taiwan", "Japan", "Indonesia", "Mongolia", "Germany", "Philippines")
+)
+
+emancipation_averages <- emancipation_averages %>%
+  left_join(country_names, by = "COUNTRY_ALPHA")
+
+# Determine emancipation averages as per regime type (V-dem)
+regime_labels <- c(
+  "Closed Autocracy", "Electoral Autocracy", "Electoral Democracy", "Liberal Democracy"
+)
+
+regime_averages <- wvsdf %>%
+  left_join(vdem_classification, by = "COUNTRY_ALPHA") %>%
+  filter(!is.na(Y020), !is.na(v2x_regime)) %>%
+  group_by(v2x_regime) %>%
+  summarise(
+    Avg_Eman = weighted.mean(Y020, w = S017, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Regime_Type = factor(v2x_regime, labels = regime_labels)
+  )
+
+# Define color palette
+color_palette_eman <- c(
+  "South Korea" = "#e63946",
+  "Taiwan"      = "#457b9d",
+  "Indonesia"   = "#f4a261",
+  "Mongolia"    = "#2a9d8f",
+  "Philippines" = "#ffca3a",
+  "Japan"       = "#f3722c",  
+  "Germany"     = "#984EA3"
+)
+
+# Full plot code: Emancipative values with interpretive thresholds and regime averages
+
+# Combine Closed + Electoral Autocracy into one category
+regime_averages_clean <- regime_averages %>%
+  mutate(Regime_Group = case_when(
+    v2x_regime %in% c(0, 1) ~ "Autocracy (Closed + Electoral)",
+    v2x_regime == 2 ~ "Electoral Democracy",
+    v2x_regime == 3 ~ "Liberal Democracy"
+  )) %>%
+  group_by(Regime_Group) %>%
+  summarise(Avg_Eman = mean(Avg_Eman), .groups = "drop")
+
+# Extract regime average y values
+libdem_y <- regime_averages_clean %>% filter(Regime_Group == "Liberal Democracy") %>% pull(Avg_Eman)
+electdem_y <- regime_averages_clean %>% filter(Regime_Group == "Electoral Democracy") %>% pull(Avg_Eman)
+autocracy_y <- regime_averages_clean %>% filter(Regime_Group == "Autocracy (Closed + Electoral)") %>% pull(Avg_Eman)
+yvals <- sort(c(autocracy_y, electdem_y, libdem_y))
+
+# X position anchor for regime labels (adjust if needed)
+label_x <- 10  # around the "68–72" bin
+
+# Plot with legend order in mind
+emancipation_averages$Country_Name <- factor(
+  emancipation_averages$Country_Name,
+  levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany")
+)
+
+
+emancipation_plot <- ggplot(emancipation_averages,
+                            aes(x = AGE_BIN, y = Avg_Emancipation, group = Country_Name, color = Country_Name)) +
+  # Shaded bands with emphasis on middle segment
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[1], ymax = yvals[2],
+           alpha = 0.08, fill = "white") +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[2], ymax = yvals[3],
+           alpha = 0.13, fill = "gray50") +
+  annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[3],
+           ymax = max(emancipation_averages$Avg_Emancipation, na.rm = TRUE),
+           alpha = 0.08, fill = "white") +
+  # Trend lines
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  # Dotted regime average lines
+  geom_hline(yintercept = autocracy_y, linetype = "dotted", color = "gray30", size = 0.5) +
+  geom_hline(yintercept = electdem_y, linetype = "dotted", color = "gray30", size = 0.5) +
+  geom_hline(yintercept = libdem_y, linetype = "dotted", color = "gray30", size = 0.5) +
+  # Regime labels placed to the left (around AGE_BIN 68–72 marker)
+  annotate("text", x = label_x, y = libdem_y + 0.01,
+           label = paste0("Liberal Democracies (avg: ", round(libdem_y, 2), ")"),
+           hjust = 0, size = 3.5, color = "gray20") +
+  annotate("text", x = label_x, y = electdem_y + 0.01,
+           label = paste0("Electoral Democracies (avg: ", round(electdem_y, 2), ")"),
+           hjust = 0, size = 3.5, color = "gray20") +
+  annotate("text", x = label_x, y = autocracy_y + 0.01,
+           label = paste0("Autocracies (Electoral + Closed) (avg: ", round(autocracy_y, 2), ")"),
+           hjust = 0, size = 3.5, color = "gray20") +
+  # Labels and theme
+  scale_color_manual(values = color_palette_eman) +
+  labs(
+    #title = "Emancipative Values Across Age Cohorts in Democratic Generations",
+    #subtitle = "Weighted averages by 5-year age bins for East Asia and Germany",
+    x = "Age at Time of Survey (5-year bins)",
+    y = "Emancipative Values Index",
+    color = ""
+  ) +
+  coord_cartesian(ylim = c(0.2, 0.8)) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    axis.title.x = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8)
+  )
+
+#| label: fig-gen-eman-plot
+ggsave("figures/democratic_generations_emancipation_plot.pdf", plot = emancipation_plot, device = "pdf", width = 10, height = 7, dpi = 300)
 
 
 ```
