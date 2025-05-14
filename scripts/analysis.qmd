@@ -657,7 +657,7 @@ emancipation_plot <- ggplot(emancipation_averages,
   coord_cartesian(ylim = c(0.2, 0.8)) +
   theme_minimal() +
   theme(
-    legend.position = "top",
+    legend.position = "bottom",
     axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
     axis.title.x = element_text(size = 10),
     axis.title.y = element_text(size = 10),
