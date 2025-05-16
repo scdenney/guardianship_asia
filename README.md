@@ -1,6 +1,6 @@
 # Guardianship Asia
 
-This repository contains code and outputs for the project *Guardianship Asia*, a comparative study of citizen support for forms of governance across East and Southeast Asia. Drawing on World Values Survey data (WVS Time Series 1981–2022, RDS v5.0), the project examines mass support for ideal-typical forms of guardianship democracy: technocratic, military, and strongman rule.
+This repository contains code and outputs for the project *Guardianship Asia*, a comparative study of citizen support for forms of governance across East and Southeast Asia. Drawing on World Values Survey data (WVS Time Series 1981–2022, RDS v5.0), the project examines public support for ideal-typical forms of guardianship democracy: technocratic, military, and strongman rule.
 
 ## Structure
 
