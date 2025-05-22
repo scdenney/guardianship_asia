@@ -63,34 +63,59 @@ vdem_classification <- vdem %>%
 wvs_eval <- wvs_eval %>%
   left_join(vdem_classification, by = "COUNTRY_ALPHA")
 
-# Calculate weighted proportions
-proportions <- wvs_eval %>%
-  filter(!is.na(S020)) %>%
-  group_by(COUNTRY_ALPHA, S020) %>%
+# Recode and reshape manually
+wvs_long <- bind_rows(
+  lapply(binary_cols, function(var) {
+    wvs_eval %>%
+      filter(!is.na(S020), !is.na(.data[[var]])) %>%
+      transmute(
+        COUNTRY_ALPHA,
+        S020,
+        Variable = var,
+        Response = ifelse(.data[[var]] %in% c(1, 2), 1, 0),
+        Weight = .data[[weight_col]]
+      )
+  })
+)
+
+# Calculate proportions and CIs
+proportions <- wvs_long %>%
+  group_by(COUNTRY_ALPHA, S020, Variable) %>%
   summarise(
-    across(
-      all_of(binary_cols),
-      ~ if (sum(!is.na(.x)) == 0) NA_real_ else weighted.mean(.x, w = .data[[weight_col]], na.rm = TRUE),
-      .names = "Proportion_{col}"),
-    .groups = "drop") %>%
-  pivot_longer(
-    cols = starts_with("Proportion_"),
-    names_to = "Variable",
-    values_to = "Proportion"
+    Proportion = weighted.mean(Response, w = Weight, na.rm = TRUE),
+    n = sum(!is.na(Response)),
+    se = sqrt(Proportion * (1 - Proportion) / n),
+    lower = pmax(Proportion - 1.96 * se, 0),
+    upper = pmin(Proportion + 1.96 * se, 1),
+    .groups = "drop"
   ) %>%
   filter(Proportion > 0) %>%
   mutate(
-    Variable = str_remove(Variable, "Proportion_"),
-    Variable_Label = case_when(
-      Variable == "E114" ~ "Strong Leader",
-      Variable == "E115" ~ "Experts Rule",
-      Variable == "E116" ~ "Army Rule",
-      Variable == "E117" ~ "Democracy Good",
-      TRUE ~ Variable
+    Variable_Label = recode(
+      Variable,
+      E114 = "Strong Leader",
+      E115 = "Experts Rule",
+      E116 = "Army Rule",
+      E117 = "Democracy Good"
+    ),
+    Variable_Label = factor(
+      Variable_Label,
+      levels = c("Democracy Good", "Experts Rule", "Army Rule", "Strong Leader")
     )
   )
 
-# Add highlight group
+# Define groupings and color mappings
+highlight_colors <- c(
+  "Japan"       = "#f3722c",
+  "Philippines" = "#ffca3a",
+  "South Korea" = "#e63946",
+  "Taiwan"      = "#457b9d",
+  "Mongolia"    = "#2a9d8f",
+  "Indonesia"   = "#f4a261"
+)
+highlighted_order <- names(highlight_colors)
+
+# Add group_type
 highlight_map <- wvs_eval %>%
   select(COUNTRY_ALPHA, regime_category) %>%
   distinct()
@@ -107,35 +132,24 @@ proportions <- proportions %>%
       COUNTRY_ALPHA == "JPN" ~ "Japan",
       regime_category == "Liberal Democracy" ~ "Liberal Democracy",
       TRUE ~ "Other"
-    ),
-    Variable_Label = factor(
-      Variable_Label,
-      levels = c("Democracy Good", "Experts Rule", "Army Rule", "Strong Leader")
     )
   )
 
-# Color Definitions (excluding Liberal Democracy from legend)
-highlight_colors <- c(
-  "South Korea" = "#e63946",
-  "Taiwan"      = "#457b9d",
-  "Indonesia"   = "#f4a261",
-  "Mongolia"    = "#2a9d8f",
-  "Philippines" = "#ffca3a",
-  "Japan"       = "#f3722c"
-)
+# Extract CI data for highlighted countries only
+proportions_ci_filtered <- proportions %>%
+  filter(group_type %in% highlighted_order) %>%
+  mutate(
+    group_type = factor(group_type, levels = highlighted_order),
+    Variable_Label = factor(Variable_Label, levels = c("Democracy Good", "Experts Rule", "Army Rule", "Strong Leader"))
+  )
+
+# Factor full group type for plotting (to include LD/Other in background)
+all_group_levels <- c(highlighted_order, "Liberal Democracy", "Other")
+proportions$group_type <- factor(proportions$group_type, levels = all_group_levels)
 
 # Plot
-
-# First, set desired order (for legend)
-proportions$group_type <- factor(
-  proportions$group_type,
-  levels = c(
-    "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia",
-    "Liberal Democracy", "Other"
-  )
-)
-
 wvs_ea_all <- ggplot() +
+  # Background lines (LD + Other)
   geom_line(
     data = proportions %>% filter(group_type == "Liberal Democracy"),
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Variable_Label)),
@@ -146,21 +160,27 @@ wvs_ea_all <- ggplot() +
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Variable_Label)),
     color = "lightgrey", size = 0.8, alpha = 0.3, show.legend = FALSE
   ) +
+  # Confidence bands for highlighted countries
+  geom_ribbon(
+    data = proportions_ci_filtered,
+    aes(x = S020, ymin = lower, ymax = upper, fill = group_type, group = interaction(COUNTRY_ALPHA, Variable_Label)),
+    alpha = 0.25, inherit.aes = FALSE
+  ) +
+  # Highlighted country lines and points
   geom_line(
-    data = proportions %>% filter(group_type %in% names(highlight_colors)),
+    data = proportions %>% filter(group_type %in% highlighted_order),
     aes(x = S020, y = Proportion, color = group_type, group = interaction(COUNTRY_ALPHA, Variable_Label)),
-    size = 1.2
+    size = 1
   ) +
   geom_point(
-    data = proportions %>% filter(group_type %in% names(highlight_colors)),
+    data = proportions %>% filter(group_type %in% highlighted_order),
     aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
-  scale_color_manual(
-  values = highlight_colors,
-  breaks = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")
-) +
-  scale_y_continuous(labels = percent_format()) +
+  # Color and fill scales
+  scale_color_manual(values = highlight_colors, breaks = highlighted_order) +
+  scale_fill_manual(values = highlight_colors, guide = "none") +
+  scale_y_continuous(labels = scales::percent_format()) +
   labs(x = "Survey Year", y = "Proportion (%)") +
   theme_minimal() +
   theme(
@@ -170,6 +190,7 @@ wvs_ea_all <- ggplot() +
     axis.text.x = element_text(angle = 45, hjust = 1)
   ) +
   facet_wrap(~Variable_Label)
+
 
 #| label: fig-wvs-support
 ggsave("figures/wvs_ea_all.pdf", plot = wvs_ea_all, device = "pdf", width = 10, height = 7, dpi = 300)
@@ -230,57 +251,56 @@ ggsave("figures/vdem_electoral_democracy.pdf", electoral_plot, width = 9, height
 
 ```{r}
 
-# Recode (drop cases that don't qualify as endorsements)
+# Recode endorsement pairs
 wvs_guardianship <- wvsdf %>%
   filter(S002VS >= 3) %>%
-mutate(
-  E114_pair = ifelse(!is.na(E114) & !is.na(E117), 
-                     ifelse(E114 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
-                     NA_real_),
-  E115_pair = ifelse(!is.na(E115) & !is.na(E117), 
-                     ifelse(E115 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
-                     NA_real_),
-  E116_pair = ifelse(!is.na(E116) & !is.na(E117), 
-                     ifelse(E116 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), 
-                     NA_real_)
-)
+  mutate(
+    E114_pair = ifelse(!is.na(E114) & !is.na(E117), ifelse(E114 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), NA_real_),
+    E115_pair = ifelse(!is.na(E115) & !is.na(E117), ifelse(E115 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), NA_real_),
+    E116_pair = ifelse(!is.na(E116) & !is.na(E117), ifelse(E116 %in% c(1, 2) & E117 %in% c(1, 2), 1, 0), NA_real_)
+  )
 
-# Summarise weighted proportions
-wvs_guardianship <- wvs_guardianship %>%
+# Calculate proportions with CIs
+guardianship <- wvs_guardianship %>%
   group_by(COUNTRY_ALPHA, S020) %>%
   summarise(
-    Dahlian_Guardianship   = weighted.mean(E115_pair, w = S017, na.rm = TRUE),
-    Strongman_Guardianship = weighted.mean(E114_pair, w = S017, na.rm = TRUE),
-    Military_Guardianship  = weighted.mean(E116_pair, w = S017, na.rm = TRUE),
-    Respondents = sum(!is.na(S017) & !is.na(E117)),  # Optional
+    Dahlian_Proportion = weighted.mean(E115_pair, w = S017, na.rm = TRUE),
+    Dahlian_se = sqrt(Dahlian_Proportion * (1 - Dahlian_Proportion) / sum(!is.na(E115_pair))),
+    
+    Strongman_Proportion = weighted.mean(E114_pair, w = S017, na.rm = TRUE),
+    Strongman_se = sqrt(Strongman_Proportion * (1 - Strongman_Proportion) / sum(!is.na(E114_pair))),
+    
+    Military_Proportion = weighted.mean(E116_pair, w = S017, na.rm = TRUE),
+    Military_se = sqrt(Military_Proportion * (1 - Military_Proportion) / sum(!is.na(E116_pair))),
+    
     .groups = "drop"
-  )
-
-# Reshape to long format
-guardianship_long <- wvs_guardianship %>%
-  pivot_longer(
-    cols = c("Dahlian_Guardianship", "Strongman_Guardianship", "Military_Guardianship"),
-    names_to = "Measure", values_to = "Proportion"
   ) %>%
-  filter(!is.na(Proportion) & Proportion > 0) %>%  # ✅ drop 0s and NAs
+  pivot_longer(
+    cols = c(Dahlian_Proportion, Strongman_Proportion, Military_Proportion,
+             Dahlian_se, Strongman_se, Military_se),
+    names_to = c("Measure", ".value"),
+    names_pattern = "(.*)_(Proportion|se)"
+  ) %>%
   mutate(
+    lower = pmax(Proportion - 1.96 * se, 0),
+    upper = pmin(Proportion + 1.96 * se, 1),
     Measure = recode(Measure,
-      "Dahlian_Guardianship"   = "Dahlian Guardianship",
-      "Strongman_Guardianship" = "Strongman Guardianship",
-      "Military_Guardianship"  = "Military Guardianship"
-    )
-  )
+      "Dahlian" = "Dahlian Guardianship",
+      "Strongman" = "Strongman Guardianship",
+      "Military" = "Military Guardianship"
+    ),
+    Measure = factor(Measure, levels = c("Dahlian Guardianship", "Military Guardianship", "Strongman Guardianship"))
+  ) %>%
+  filter(Proportion > 0)
 
-
-# Add V-Dem regime classification
-latest_year <- max(vdem$year, na.rm = TRUE)
+# V-Dem regime classification
 vdem_classification <- vdem %>%
-  filter(year == latest_year) %>%
-  select(COUNTRY_ALPHA = country_text_id, country_name, v2x_regime) %>%
+  filter(year == max(vdem$year, na.rm = TRUE)) %>%
+  select(COUNTRY_ALPHA = country_text_id, v2x_regime) %>%
   mutate(regime_category = if_else(v2x_regime == 3, "Liberal Democracy", "Other"))
 
-# Merge V-Dem classification
-guardianship_long <- guardianship_long %>%
+# Add group_type to full data
+wvs_guardianship <- wvs_guardianship %>%
   left_join(vdem_classification, by = "COUNTRY_ALPHA") %>%
   mutate(
     group_type = case_when(
@@ -295,78 +315,80 @@ guardianship_long <- guardianship_long %>%
     )
   )
 
-# Define highlight ordering by most recent Strongman Guardianship level
-focal_countries <- c("South Korea", "Taiwan", "Indonesia", "Mongolia", "Philippines")
-
-highlight_order <- guardianship_long %>%
-  filter(Measure == "Strongman Guardianship", group_type %in% focal_countries) %>%
-  group_by(group_type) %>%
-  filter(S020 == max(S020, na.rm = TRUE)) %>%
-  ungroup() %>%
-  arrange(desc(Proportion)) %>%
-  pull(group_type)
-
-highlight_order <- c(highlight_order, setdiff(focal_countries, highlight_order))
-
-# Define custom colors
+# Color order and highlighting 
 highlight_colors <- c(
-  "South Korea" = "#e63946",
-  "Taiwan"      = "#355d7f",   # distinguishable from liberal democracy
-  "Indonesia"   = "#f4a261",
-  "Mongolia"    = "#2a9d8f",
+  "Japan"       = "#f3722c",
   "Philippines" = "#ffca3a",
-  "Japan"       = "#f3722c"
+  "South Korea" = "#e63946",
+  "Taiwan"      = "#355d7f",
+  "Mongolia"    = "#2a9d8f",
+  "Indonesia"   = "#f4a261"
+)
+highlight_order <- names(highlight_colors)
+
+wvs_guardianship$group_type <- factor(wvs_guardianship$group_type,
+  levels = c(highlight_order, "Liberal Democracy", "Other")
 )
 
-# Plot guardianship measures with legend order in mind
-guardianship_long$group_type <- factor(
-  guardianship_long$group_type,
-  levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Liberal Democracy", "Other")
-)
+# Filter data for ribbon layer
+ci_ribbons <- wvs_guardianship %>%
+  filter(group_type %in% highlight_order)
 
-
+# Plot ===
 guardianship_types <- ggplot() +
+  # Background: LD and Other
   geom_line(
-    data = guardianship_long %>% filter(group_type == "Liberal Democracy"),
+    data = wvs_guardianship %>% filter(group_type == "Liberal Democracy"),
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Measure)),
-    color = "#64a3cb", size = 0.8, alpha = 0.6, show.legend = FALSE
+    color = "#64a3cb", size = 0.8, alpha = 0.6
   ) +
   geom_line(
-    data = guardianship_long %>% filter(group_type == "Other"),
+    data = wvs_guardianship %>% filter(group_type == "Other"),
     aes(x = S020, y = Proportion, group = interaction(COUNTRY_ALPHA, Measure)),
-    color = "lightgrey", size = 0.8, alpha = 0.3, show.legend = FALSE
+    color = "lightgrey", size = 0.8, alpha = 0.3
   ) +
+  # CI ribbons
+  geom_ribbon(
+    data = ci_ribbons,
+    aes(x = S020, ymin = lower, ymax = upper, fill = group_type,
+        group = interaction(COUNTRY_ALPHA, Measure)),
+    alpha = 0.25, inherit.aes = FALSE
+  ) +
+  # Highlighted lines
   geom_line(
-    data = guardianship_long %>% filter(group_type %in% names(highlight_colors)),
-    aes(x = S020, y = Proportion, color = group_type, group = interaction(COUNTRY_ALPHA, Measure)),
-    size = 1.2
+    data = wvs_guardianship %>% filter(group_type %in% highlight_order),
+    aes(x = S020, y = Proportion, color = group_type,
+        group = interaction(COUNTRY_ALPHA, Measure)),
+    size = 1
   ) +
   geom_point(
-    data = guardianship_long %>% filter(group_type %in% names(highlight_colors)),
+    data = wvs_guardianship %>% filter(group_type %in% highlight_order),
     aes(x = S020, y = Proportion, color = group_type),
     size = 2
   ) +
+  # Manual color + fill scales
   scale_color_manual(
-  values = highlight_colors,
-  breaks = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")
-) +
-  scale_y_continuous(labels = percent_format()) +
-  labs(
-    x = "Survey Year",
-    y = "Proportion (%)"
+    values = highlight_colors,
+    breaks = highlight_order
   ) +
+  scale_fill_manual(
+    values = highlight_colors,
+    guide = "none"
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "Survey Year", y = "Proportion (%)") +
+  facet_wrap(~Measure) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
     legend.title = element_blank(),
     strip.text = element_text(face = "bold"),
     axis.text.x = element_text(angle = 45, hjust = 1)
-  ) +
-  facet_wrap(~Measure)
+  )
+
 
 #| label: fig-guardianship
 ggsave("figures/guardianship_types.pdf", plot = guardianship_types, device = "pdf", width = 10, height = 7, dpi = 300)
-
 
 
 ```
@@ -375,11 +397,10 @@ ggsave("figures/guardianship_types.pdf", plot = guardianship_types, device = "pd
 
 ```{r}
 
-# Define generation cutoffs for each country
+# Assign generations
 assign_generations <- function(df) {
   df %>%
     mutate(
-      # Assign transition year by country
       Transition_Year = case_when(
         COUNTRY_ALPHA == "KOR" ~ 1987,
         COUNTRY_ALPHA == "TWN" ~ 1991,
@@ -389,106 +410,139 @@ assign_generations <- function(df) {
         COUNTRY_ALPHA == "JPN" ~ 1956,
         TRUE ~ NA_real_
       ),
-
-      # Calculate age at the time of transition
       Transition_Age = Transition_Year - X002,
-
-      # Assign generation based on age at transition
       Generation = case_when(
-        Transition_Age >= 26 ~ "Authoritarian",   # Fully socialized pre-transition
-        Transition_Age >= 18 & Transition_Age <= 25 ~ "Transitional",  # Political coming-of-age during transition
-        Transition_Age < 18 ~ "Democratic",       # Socialized in post-transition democracy
+        Transition_Age >= 26 ~ "Authoritarian",
+        Transition_Age >= 18 & Transition_Age <= 25 ~ "Transitional",
+        Transition_Age < 18 ~ "Democratic",
         TRUE ~ NA_character_
       )
     )
 }
 
-# Preprocess and recode guardianship measures
+# Age bins
 age_breaks <- c(seq(18, 78, by = 5), Inf)
 age_labels <- paste0(age_breaks[-length(age_breaks)], "–", age_breaks[-1] - 1)
 age_labels[length(age_labels)] <- "79+"
 
+# Preprocess: calculate AGE, recode items, assign generation
 wvs_generational <- wvsdf %>%
-    filter(COUNTRY_ALPHA %in% c("KOR", "TWN", "MNG", "IDN", "PHL", "JPN")) %>%
-    mutate(
-        AGE = ifelse(!is.na(X003), X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA)),
-        AGE_BIN = cut(
-            AGE,
-            breaks = age_breaks,
-            right = FALSE,
-            include.lowest = TRUE,
-            labels = age_labels
-        ),
+  filter(COUNTRY_ALPHA %in% c("KOR", "TWN", "MNG", "IDN", "PHL", "JPN")) %>%
+  mutate(
+    AGE = ifelse(!is.na(X003), X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA)),
+    AGE_BIN = cut(AGE, breaks = age_breaks, include.lowest = TRUE, right = FALSE, labels = age_labels),
+    E114_rec = ifelse(E114 %in% c(1, 2), 1, 0),  # Strong Leader
+    E115_rec = ifelse(E115 %in% c(1, 2), 1, 0),  # Experts Rule
+    E116_rec = ifelse(E116 %in% c(1, 2), 1, 0),  # Army Rule
+    E117_rec = ifelse(E117 %in% c(1, 2), 1, 0)   # Democracy
+  ) %>%
+  assign_generations() %>%
+  filter(!is.na(Generation), !is.na(AGE), AGE >= 18, AGE <= 100)
 
-        E114_rec = ifelse(E114 %in% c(1, 2), 1, 0),  # Strong Leader
-        E115_rec = ifelse(E115 %in% c(1, 2), 1, 0),  # Experts Rule
-        E116_rec = ifelse(E116 %in% c(1, 2), 1, 0),  # Army Rule
-        E117_rec = ifelse(E117 %in% c(1, 2), 1, 0)   # Democracy
-    ) %>%
-    assign_generations() %>%
-    filter(!is.na(Generation), !is.na(AGE), AGE >= 18, AGE <= 100)
+# Compute support + CIs by generation and age bin
+# === Step 1: Count sample sizes by COUNTRY × Generation × AGE_BIN ===
+bin_counts <- wvs_generational %>%
+  group_by(COUNTRY_ALPHA, Generation, AGE_BIN) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(COUNTRY_ALPHA, Generation, AGE_BIN) %>%
+  group_by(COUNTRY_ALPHA, Generation) %>%
+  mutate(
+    AGE_BIN_NEW = if_else(n < 10, dplyr::lag(AGE_BIN), AGE_BIN)
+  ) %>%
+  ungroup()
 
-# Compute guardianship support by generation and age bin WITHOUT threshold restriction
-wvs_gen_summary <- wvs_generational %>%
-    group_by(COUNTRY_ALPHA, Generation, AGE_BIN) %>%
-    summarise(
-        n_dem = sum(S017[!is.na(E117)], na.rm = TRUE),
-        n_dahl = sum(S017[!is.na(E117_rec) & !is.na(E115_rec)], na.rm = TRUE),
-        n_strong = sum(S017[!is.na(E117_rec) & !is.na(E114_rec)], na.rm = TRUE),
-        n_mil = sum(S017[!is.na(E117_rec) & !is.na(E116_rec)], na.rm = TRUE),
+# === Step 2: Merge bin reassignment back into generational data ===
+wvs_generational_collapsed <- wvs_generational %>%
+  left_join(
+    bin_counts %>% select(COUNTRY_ALPHA, Generation, AGE_BIN, AGE_BIN_NEW),
+    by = c("COUNTRY_ALPHA", "Generation", "AGE_BIN")
+  ) %>%
+  mutate(AGE_BIN = AGE_BIN_NEW) %>%
+  filter(!is.na(AGE_BIN))
 
-        Democracy = sum(E117_rec * S017, na.rm = TRUE) / n_dem,
-        Dahlian = sum(E117_rec * E115_rec * S017, na.rm = TRUE) / n_dahl,
-        Strongman = sum(E117_rec * E114_rec * S017, na.rm = TRUE) / n_strong,
-        Military = sum(E117_rec * E116_rec * S017, na.rm = TRUE) / n_mil,
-        .groups = "drop"
-    ) %>%
-    pivot_longer(cols = c("Democracy", "Dahlian", "Strongman", "Military"), names_to = "Measure", values_to = "Proportion") %>%
-    filter(!is.na(Proportion), Proportion < 1, Proportion > 0) %>% ## to avoid plotting noise
-    mutate(
-        Measure = recode(Measure,
-                         "Democracy" = "Democracy Good",
-                         "Dahlian" = "Dahlian Guardianship",
-                         "Strongman" = "Strongman Guardianship",
-                         "Military" = "Military Guardianship"
-        )
-    )
+# === Step 3: Compute weighted proportions + CIs ===
+wvs_gen_summary <- wvs_generational_collapsed %>%
+  group_by(COUNTRY_ALPHA, Generation, AGE_BIN) %>%
+  summarise(
+    n_dem = sum(!is.na(E117_rec)),
+    n_dahl = sum(!is.na(E117_rec) & !is.na(E115_rec)),
+    n_strong = sum(!is.na(E117_rec) & !is.na(E114_rec)),
+    n_mil = sum(!is.na(E117_rec) & !is.na(E116_rec)),
 
-# Plotting colors
+    Democracy = mean(E117_rec, na.rm = TRUE),
+    Dahlian = mean(E117_rec * E115_rec, na.rm = TRUE),
+    Strongman = mean(E117_rec * E114_rec, na.rm = TRUE),
+    Military = mean(E117_rec * E116_rec, na.rm = TRUE),
+
+    se_dem = sqrt(Democracy * (1 - Democracy) / n_dem),
+    se_dahl = sqrt(Dahlian * (1 - Dahlian) / n_dahl),
+    se_strong = sqrt(Strongman * (1 - Strongman) / n_strong),
+    se_mil = sqrt(Military * (1 - Military) / n_mil),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c("Democracy", "Dahlian", "Strongman", "Military"),
+    names_to = "Measure",
+    values_to = "Proportion"
+  ) %>%
+  mutate(
+    se = case_when(
+      Measure == "Democracy" ~ se_dem,
+      Measure == "Dahlian" ~ se_dahl,
+      Measure == "Strongman" ~ se_strong,
+      Measure == "Military" ~ se_mil
+    ),
+    lower = pmax(Proportion - 1.96 * se, 0),
+    upper = pmin(Proportion + 1.96 * se, 1),
+    Measure = recode(Measure,
+      "Democracy" = "Democracy Good",
+      "Dahlian" = "Dahlian Guardianship",
+      "Strongman" = "Strongman Guardianship",
+      "Military" = "Military Guardianship"
+    ),
+    Measure = factor(Measure, levels = c(
+      "Democracy Good", "Dahlian Guardianship", "Military Guardianship", "Strongman Guardianship"
+    ))
+  ) %>%
+  filter(!is.na(Proportion), Proportion > 0, Proportion < 1)
+
+
+# Plot colors and factor levels
 generation_colors <- c(
-    "Democratic" = "#e63946",
-    "Transitional" = "#a8dadc",
-    "Authoritarian" = "#1d3557"
+  "Democratic" = "#e63946",
+  "Transitional" = "#a8dadc",
+  "Authoritarian" = "#1d3557"
 )
 
-# Reorder country presentation
 wvs_gen_summary <- wvs_gen_summary %>%
-  mutate(COUNTRY_ALPHA = factor(COUNTRY_ALPHA, levels = c(
-    "JPN", "PHL", "KOR", "TWN", "MNG", "IDN"
-  )))
+  mutate(
+    COUNTRY_ALPHA = factor(COUNTRY_ALPHA, levels = c("JPN", "PHL", "KOR", "TWN", "MNG", "IDN")),
+    Generation = factor(Generation, levels = c("Democratic", "Transitional", "Authoritarian"))
+  )
 
 # Plot
 gen_guardianship <- ggplot(wvs_gen_summary, aes(x = AGE_BIN, y = Proportion, color = Generation, group = Generation)) +
-    geom_line(linewidth = 1.2, na.rm = TRUE) +
-    geom_point(size = 1.5, na.rm = TRUE) +
-    facet_grid(COUNTRY_ALPHA ~ factor(Measure, levels = c("Democracy Good", "Dahlian Guardianship", "Military Guardianship", "Strongman Guardianship")), scales = "fixed", space = "free") +
-    scale_color_manual(values = generation_colors, breaks = c("Democratic", "Transitional", "Authoritarian")) +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-    labs(
-        #title = "Support for Guardianship Democracy by Political Generation",
-        #subtitle = "% support for each system type, by generation and age at time of survey",
-        x = "Age at Time of Survey (5-year bins)",
-        y = "Proportion",
-        color = ""
-    ) +
-    theme_light() +
-    theme(
-        strip.text = element_text(face = "bold"),
-        axis.text.x = element_text(size = 7, angle = 45, hjust = 1),
-        axis.text.y = element_text(size = 7),
-        legend.position = "bottom",
-        panel.spacing.x = unit(c(1.25, 0.25, 0.25), "lines")
-    )
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = Generation), alpha = 0.2, color = NA) +
+  geom_line(linewidth = 1.2, na.rm = TRUE) +
+  geom_point(size = 1.5, na.rm = TRUE) +
+  facet_grid(COUNTRY_ALPHA ~ Measure, scales = "fixed", space = "free") +
+  scale_color_manual(values = generation_colors, breaks = names(generation_colors)) +
+  scale_fill_manual(values = generation_colors, guide = "none") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  labs(
+    x = "Age at Time of Survey (5-year bins)",
+    y = "Proportion Supporting",
+    color = "Generation"
+  ) +
+  theme_light() +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_text(size = 7, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 7),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    panel.spacing.x = unit(c(1.25, 0.25, 0.25), "lines")
+  )
 
 #| label: fig-gen-plot
 ggsave("figures/gen_guardianship.pdf", plot = gen_guardianship, device = "pdf", width = 12, height = 10, dpi = 300)
@@ -514,6 +568,11 @@ democratic_generations <- list(
   PHL = 1970:2023,
   DEU = 1938:2023   # Basic Law (1949) → age 18 by 1956 → born ≥1938
 )
+
+# Reload regime classification
+vdem_classification <- vdem %>%
+  filter(year == max(vdem$year, na.rm = TRUE)) %>%
+  select(COUNTRY_ALPHA = country_text_id, v2x_regime)
 
 # Filter and annotate democratic generation
 wvs_eman <- wvsdf %>%
@@ -550,7 +609,49 @@ emancipation_averages <- wvs_eman %>%
   summarise(
     Avg_Emancipation = weighted.mean(Y020, w = S017, na.rm = TRUE),
     Respondents = sum(!is.na(Y020)),
-    .groups = "drop")
+    se = sqrt(Avg_Emancipation * (1 - Avg_Emancipation) / Respondents),
+    lower = pmax(Avg_Emancipation - 1.96 * se, 0),
+    upper = pmin(Avg_Emancipation + 1.96 * se, 1),
+    .groups = "drop"
+  ) %>%
+  left_join(country_names, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Country_Name = factor(Country_Name, levels = c(
+      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany"
+    ))
+  )
+
+# Add numeric bin index for rolling logic
+emancipation_averages <- emancipation_averages %>%
+  mutate(BIN_INDEX = as.integer(factor(AGE_BIN, levels = unique(AGE_BIN))))
+
+# Roll undersampled bins back
+threshold <- 10
+
+emancipation_rolled <- emancipation_averages %>%
+  group_by(COUNTRY_ALPHA) %>%
+  arrange(BIN_INDEX) %>%
+  mutate(
+    AGE_BIN_ROLLED = if_else(Respondents < threshold & BIN_INDEX > min(BIN_INDEX),
+                             lag(AGE_BIN),
+                             AGE_BIN)
+  ) %>%
+  ungroup()
+
+# Re-aggregate using rolled bins
+emancipation_final <- emancipation_rolled %>%
+  group_by(COUNTRY_ALPHA, AGE_BIN_ROLLED) %>%
+  summarise(
+    Avg_Emancipation = weighted.mean(Avg_Emancipation, w = Respondents, na.rm = TRUE),
+    Respondents = sum(Respondents, na.rm = TRUE),
+    se = sqrt(Avg_Emancipation * (1 - Avg_Emancipation) / Respondents),
+    lower = pmax(Avg_Emancipation - 1.96 * se, 0),
+    upper = pmin(Avg_Emancipation + 1.96 * se, 1),
+    .groups = "drop"
+  ) %>%
+  rename(AGE_BIN = AGE_BIN_ROLLED) %>%
+  left_join(country_names, by = "COUNTRY_ALPHA")
+
 
 # Map country codes to names
 country_names <- tibble::tibble(
@@ -566,18 +667,6 @@ regime_labels <- c(
   "Closed Autocracy", "Electoral Autocracy", "Electoral Democracy", "Liberal Democracy"
 )
 
-regime_averages <- wvsdf %>%
-  left_join(vdem_classification, by = "COUNTRY_ALPHA") %>%
-  filter(!is.na(Y020), !is.na(v2x_regime)) %>%
-  group_by(v2x_regime) %>%
-  summarise(
-    Avg_Eman = weighted.mean(Y020, w = S017, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    Regime_Type = factor(v2x_regime, labels = regime_labels)
-  )
-
 # Define color palette
 color_palette_eman <- c(
   "South Korea" = "#e63946",
@@ -592,14 +681,20 @@ color_palette_eman <- c(
 # Full plot code: Emancipative values with interpretive thresholds and regime averages
 
 # Combine Closed + Electoral Autocracy into one category
-regime_averages_clean <- regime_averages %>%
+regime_averages_clean <- wvsdf %>%
+  filter(!is.na(Y020)) %>%
+  left_join(vdem_classification, by = "COUNTRY_ALPHA") %>%
+  filter(!is.na(v2x_regime)) %>%
   mutate(Regime_Group = case_when(
     v2x_regime %in% c(0, 1) ~ "Autocracy (Closed + Electoral)",
     v2x_regime == 2 ~ "Electoral Democracy",
     v2x_regime == 3 ~ "Liberal Democracy"
   )) %>%
   group_by(Regime_Group) %>%
-  summarise(Avg_Eman = mean(Avg_Eman), .groups = "drop")
+  summarise(
+    Avg_Eman = weighted.mean(Y020, w = S017, na.rm = TRUE),
+    .groups = "drop"
+  )
 
 # Extract regime average y values
 libdem_y <- regime_averages_clean %>% filter(Regime_Group == "Liberal Democracy") %>% pull(Avg_Eman)
@@ -611,15 +706,21 @@ yvals <- sort(c(autocracy_y, electdem_y, libdem_y))
 label_x <- 10  # around the "68–72" bin
 
 # Plot with legend order in mind
-emancipation_averages$Country_Name <- factor(
-  emancipation_averages$Country_Name,
-  levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany")
-)
+emancipation_averages <- emancipation_averages %>%
+  left_join(country_names, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Country_Name = factor(Country_Name, levels = c(
+      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany"
+    ))
+  )
 
 
-emancipation_plot <- ggplot(emancipation_averages,
+emancipation_plot <- ggplot(emancipation_final,
                             aes(x = AGE_BIN, y = Avg_Emancipation, group = Country_Name, color = Country_Name)) +
-  # Shaded bands with emphasis on middle segment
+  # Confidence ribbons first
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = Country_Name),
+              alpha = 0.2, color = NA, show.legend = FALSE) +
+  # Shaded regime zones
   annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[1], ymax = yvals[2],
            alpha = 0.08, fill = "white") +
   annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[2], ymax = yvals[3],
@@ -627,14 +728,14 @@ emancipation_plot <- ggplot(emancipation_averages,
   annotate("rect", xmin = -Inf, xmax = Inf, ymin = yvals[3],
            ymax = max(emancipation_averages$Avg_Emancipation, na.rm = TRUE),
            alpha = 0.08, fill = "white") +
-  # Trend lines
+  # Trend lines and points
   geom_line(size = 1.2) +
   geom_point(size = 2) +
-  # Dotted regime average lines
+  # Regime benchmarks
   geom_hline(yintercept = autocracy_y, linetype = "dotted", color = "gray30", size = 0.5) +
   geom_hline(yintercept = electdem_y, linetype = "dotted", color = "gray30", size = 0.5) +
   geom_hline(yintercept = libdem_y, linetype = "dotted", color = "gray30", size = 0.5) +
-  # Regime labels placed to the left (around AGE_BIN 68–72 marker)
+  # Regime labels
   annotate("text", x = label_x, y = libdem_y + 0.01,
            label = paste0("Liberal Democracies (avg: ", round(libdem_y, 2), ")"),
            hjust = 0, size = 3.5, color = "gray20") +
@@ -644,16 +745,15 @@ emancipation_plot <- ggplot(emancipation_averages,
   annotate("text", x = label_x, y = autocracy_y + 0.01,
            label = paste0("Autocracies (Electoral + Closed) (avg: ", round(autocracy_y, 2), ")"),
            hjust = 0, size = 3.5, color = "gray20") +
-  # Labels and theme
+  # Scales and theme
   scale_color_manual(values = color_palette_eman) +
+  scale_fill_manual(values = color_palette_eman) +
+  coord_cartesian(ylim = c(0.2, 0.8)) +
   labs(
-    #title = "Emancipative Values Across Age Cohorts in Democratic Generations",
-    #subtitle = "Weighted averages by 5-year age bins for East Asia and Germany",
     x = "Age at Time of Survey (5-year bins)",
     y = "Emancipative Values Index",
-    color = ""
+    color = NULL
   ) +
-  coord_cartesian(ylim = c(0.2, 0.8)) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
