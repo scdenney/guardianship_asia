@@ -554,10 +554,19 @@ ggsave("figures/gen_guardianship.pdf", plot = gen_guardianship, device = "pdf", 
 
 ```{r}
 
-### Emancipative values across democratic generations       
- 
+### Emancipative values across democratic generations
+
 # Define countries and democratic generations
 countries <- c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL")
+
+# Country code to name mapping (used throughout this section)
+country_names <- tibble::tibble(
+  COUNTRY_ALPHA = c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL"),
+  Country_Name = c(
+    "South Korea", "Taiwan", "Japan",
+    "Indonesia", "Mongolia", "Germany", "Philippines"
+  )
+)
 
 democratic_generations <- list(
   KOR = 1970:2023,  # Transition in 1987 → born ≥1970
@@ -650,16 +659,6 @@ emancipation_final <- emancipation_rolled %>%
     .groups = "drop"
   ) %>%
   rename(AGE_BIN = AGE_BIN_ROLLED) %>%
-  left_join(country_names, by = "COUNTRY_ALPHA")
-
-
-# Map country codes to names
-country_names <- tibble::tibble(
-  COUNTRY_ALPHA = c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL"),
-  Country_Name = c("South Korea", "Taiwan", "Japan", "Indonesia", "Mongolia", "Germany", "Philippines")
-)
-
-emancipation_averages <- emancipation_averages %>%
   left_join(country_names, by = "COUNTRY_ALPHA")
 
 # Determine emancipation averages as per regime type (V-dem)
