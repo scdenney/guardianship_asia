@@ -557,14 +557,14 @@ ggsave("figures/gen_guardianship.pdf", plot = gen_guardianship, device = "pdf", 
 ### Emancipative values across democratic generations
 
 # Define countries and democratic generations
-countries <- c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL")
+countries <- c("KOR", "TWN", "JPN", "IDN", "MNG", "PHL") #"DEU", 
 
 # Country code to name mapping (used throughout this section)
 country_names <- tibble::tibble(
-  COUNTRY_ALPHA = c("KOR", "TWN", "JPN", "IDN", "MNG", "DEU", "PHL"),
+  COUNTRY_ALPHA = c("KOR", "TWN", "JPN", "IDN", "MNG", "PHL"), #"DEU", 
   Country_Name = c(
     "South Korea", "Taiwan", "Japan",
-    "Indonesia", "Mongolia", "Germany", "Philippines"
+    "Indonesia", "Mongolia", "Philippines" #"Germany", 
   )
 )
 
@@ -574,8 +574,8 @@ democratic_generations <- list(
   JPN = 1938:2023,  # Postwar constitution in 1946 → age 18 by 1956 → born ≥1938
   IDN = 1981:2023,  # Transition in 1998 → born ≥1981
   MNG = 1973:2023,  # Transition in 1991 → born ≥1973
-  PHL = 1970:2023,
-  DEU = 1938:2023   # Basic Law (1949) → age 18 by 1956 → born ≥1938
+  PHL = 1970:2023#,
+  #DEU = 1938:2023   # Basic Law (1949) → age 18 by 1956 → born ≥1938
 )
 
 # Reload regime classification
@@ -597,7 +597,7 @@ wvs_eman <- wvsdf %>%
     COUNTRY_ALPHA == "IDN" & X002 %in% democratic_generations$IDN ~ TRUE,
     COUNTRY_ALPHA == "MNG" & X002 %in% democratic_generations$MNG ~ TRUE,
     COUNTRY_ALPHA == "PHL" & X002 %in% democratic_generations$PHL ~ TRUE,
-    COUNTRY_ALPHA == "DEU" & X002 %in% democratic_generations$DEU ~ TRUE,
+    #COUNTRY_ALPHA == "DEU" & X002 %in% democratic_generations$DEU ~ TRUE,
     TRUE ~ FALSE
   )) %>%
   ungroup() %>%
@@ -626,7 +626,7 @@ emancipation_averages <- wvs_eman %>%
   left_join(country_names, by = "COUNTRY_ALPHA") %>%
   mutate(
     Country_Name = factor(Country_Name, levels = c(
-      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany"
+      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia"#, "Germany"
     ))
   )
 
@@ -673,8 +673,8 @@ color_palette_eman <- c(
   "Indonesia"   = "#f4a261",
   "Mongolia"    = "#2a9d8f",
   "Philippines" = "#ffca3a",
-  "Japan"       = "#f3722c",  
-  "Germany"     = "#984EA3"
+  "Japan"       = "#f3722c"#,  
+  #"Germany"     = "#984EA3"
 )
 
 # Full plot code: Emancipative values with interpretive thresholds and regime averages
@@ -709,7 +709,7 @@ emancipation_averages <- emancipation_averages %>%
   left_join(country_names, by = "COUNTRY_ALPHA") %>%
   mutate(
     Country_Name = factor(Country_Name, levels = c(
-      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia", "Germany"
+      "Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia"#, "Germany"
     ))
   )
 
@@ -768,3 +768,411 @@ ggsave("figures/democratic_generations_emancipation_plot.pdf", plot = emancipati
 
 
 ```
+
+### EVI x generations
+
+```{r}
+
+# Packages
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(survey)
+library(forcats)
+library(tibble)
+
+# 1) Countries of interest and pretty names
+countries <- c("KOR", "TWN", "JPN", "IDN", "MNG", "PHL")
+
+country_names <- tribble(
+  ~COUNTRY_ALPHA, ~Country_Name,
+  "JPN", "Japan",
+  "PHL", "Philippines",
+  "KOR", "South Korea",
+  "TWN", "Taiwan",
+  "MNG", "Mongolia",
+  "IDN", "Indonesia"
+)
+
+# 2) Cohort boundaries by birth year (from your manuscript table)
+#    Authoritarian = born <= cutoff_A
+#    Transitional  = born in [start_T, end_T]
+#    Democratic    = born >= cutoff_D
+cohort_rules <- tribble(
+  ~COUNTRY_ALPHA, ~cutoff_A, ~start_T, ~end_T, ~cutoff_D,
+  "KOR", 1959, 1960, 1969, 1970,   # transition 1987
+  "TWN", 1953, 1954, 1968, 1969,   # transition 1991
+  "JPN", 1930, 1931, 1937, 1938,   # democratic by 1956
+  "IDN", 1960, 1961, 1980, 1981,   # transition 1998
+  "MNG", 1972, 1973, 1992, 1993,   # transition 1992
+  "PHL", 1960, 1961, 1969, 1970    # transition 1986
+)
+
+# 3) Prep: age and birth year, filter to countries and valid ages
+wvs_prepped <- wvsdf %>%
+  filter(COUNTRY_ALPHA %in% countries) %>%
+  mutate(
+    AGE = dplyr::coalesce(X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA_real_)),
+    BIRTH_YEAR = X002
+  ) %>%
+  filter(!is.na(Y020), !is.na(S017), !is.na(BIRTH_YEAR), !is.na(AGE), AGE >= 18, AGE <= 100) %>%
+  left_join(cohort_rules, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Cohort = case_when(
+      BIRTH_YEAR <= cutoff_A ~ "Authoritarian",
+      BIRTH_YEAR >= cutoff_D ~ "Democratic",
+      BIRTH_YEAR >= start_T & BIRTH_YEAR <= end_T ~ "Transitional",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Cohort)) %>%
+  left_join(country_names, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Country_Name = factor(Country_Name,
+                          levels = c("Japan", "Philippines", "South Korea", "Taiwan", "Mongolia", "Indonesia")),
+    Cohort = factor(Cohort, levels = c("Democratic", "Transitional", "Authoritarian"))
+  )
+
+# 4) Survey design for proper weighted means and SEs
+#    Note: WVS has complex designs, but if PSUs/strata are unavailable,
+#    we use weights-only design. This is conservative and transparent.
+des <- svydesign(ids = ~1, weights = ~S017, data = wvs_prepped)
+
+# 5) Weighted means and standard errors of EVI by Country x Cohort
+evi_summary <- svyby(
+  ~Y020, by = ~Country_Name + Cohort, design = des,
+  FUN = svymean, na.rm = TRUE, vartype = c("se", "ci"), level = 0.95
+) %>%
+  as_tibble() %>%
+  rename(Mean_EVI = Y020, SE = se, CI_low = ci_l, CI_high = ci_u) %>%
+  arrange(Country_Name, Cohort)
+
+# Optional: count unweighted and weighted n for transparency
+n_counts <- wvs_prepped %>%
+  group_by(Country_Name, Cohort) %>%
+  summarise(
+    n_unw = n(),
+    w_sum = sum(S017, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+evi_summary <- evi_summary %>% left_join(n_counts, by = c("Country_Name", "Cohort"))
+
+# 6) Plot: grouped bars with 95% CIs
+palette_cohorts <- c(
+  "Democratic" = "#3b82f6",
+  "Transitional" = "#a78bfa",
+  "Authoritarian" = "#94a3b8"
+)
+
+p_bars <- ggplot(evi_summary,
+                 aes(x = Country_Name, y = Mean_EVI, fill = Cohort)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75, color = "white") +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high),
+                position = position_dodge(width = 0.8), width = 0.15, linewidth = 0.5) +
+  scale_fill_manual(values = palette_cohorts, guide = guide_legend(reverse = FALSE)) +
+  labs(
+    x = NULL,
+    y = "Emancipative Values Index (weighted mean)",
+    fill = NULL,
+    title = "Emancipative values by cohort and country",
+    subtitle = "Three cohorts per country in fixed order: Democratic, Transitional, Authoritarian",
+    caption = "World Values Survey pooled waves. Means weighted by S017. Cohorts defined by birth year relative to each country's transition."
+  ) +
+  coord_cartesian(ylim = c(0, 1)) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(face = "bold")
+  )
+
+
+
+```
+
+### Confidence x generations
+
+```{r}
+
+# Packages
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(survey)
+library(forcats)
+library(tibble)
+library(purrr)
+
+# Countries and nice names
+countries <- c("KOR","TWN","JPN","IDN","MNG","PHL")
+country_names <- tribble(
+  ~COUNTRY_ALPHA, ~Country_Name,
+  "JPN","Japan",
+  "PHL","Philippines",
+  "KOR","South Korea",
+  "TWN","Taiwan",
+  "MNG","Mongolia",
+  "IDN","Indonesia"
+)
+
+# Cohort boundaries by birth year
+cohort_rules <- tribble(
+  ~COUNTRY_ALPHA, ~cutoff_A, ~start_T, ~end_T, ~cutoff_D,
+  "KOR", 1959, 1960, 1969, 1970,
+  "TWN", 1953, 1954, 1968, 1969,
+  "JPN", 1930, 1931, 1937, 1938,
+  "IDN", 1960, 1961, 1980, 1981,
+  "MNG", 1972, 1973, 1992, 1993,
+  "PHL", 1960, 1961, 1969, 1970
+)
+
+# Core institutional confidence items from E069 battery
+# Parliament, Parties, Government, Civil service, Courts, Elections
+ici_items_core <- c("E069_07","E069_12","E069_11","E069_08","E069_17","E069_64")
+
+# Gov only: Parliament, Parties, Government
+ici_items_gov<- c("E069_07","E069_12","E069_11")
+
+# Optional armed forces item for a tutelary index variant
+ici_item_military <- "E069_02"
+
+# Keep only variables present in the data
+available_core <- ici_items_core[ici_items_core %in% names(wvsdf)]
+stopifnot(length(available_core) >= 3)
+
+# Prep respondent level data
+wvs_prepped <- wvsdf %>%
+  filter(COUNTRY_ALPHA %in% countries) %>%
+  mutate(
+    AGE = dplyr::coalesce(X003, ifelse(!is.na(S020) & !is.na(X002), S020 - X002, NA_real_)),
+    BIRTH_YEAR = X002,
+    WAVE = S002VS
+  ) %>%
+  filter(!is.na(S017), !is.na(BIRTH_YEAR), !is.na(AGE), AGE >= 18, AGE <= 100) %>%
+  left_join(cohort_rules, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Cohort = case_when(
+      BIRTH_YEAR <= cutoff_A ~ "Authoritarian",
+      BIRTH_YEAR >= cutoff_D ~ "Democratic",
+      BIRTH_YEAR >= start_T & BIRTH_YEAR <= end_T ~ "Transitional",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Cohort)) %>%
+  left_join(country_names, by = "COUNTRY_ALPHA") %>%
+  mutate(
+    Country_Name = factor(Country_Name,
+                          levels = c("Japan","Philippines","South Korea","Taiwan","Mongolia","Indonesia")),
+    Cohort = factor(Cohort, levels = c("Democratic","Transitional","Authoritarian"))
+  )
+
+# Reverse code and scale: 1 great deal ... 4 none at all  -> 1 ... 0
+rev01 <- function(x) ifelse(x %in% 1:4, (5 - x) / 3, NA_real_)
+
+wvs_prepped <- wvs_prepped %>%
+  mutate(across(all_of(available_core), rev01)) %>%
+  rowwise() %>%
+  mutate(
+    ICI = ifelse(all(is.na(c_across(all_of(available_core)))), NA_real_,
+                 mean(c_across(all_of(available_core)), na.rm = TRUE))
+  ) %>%
+  ungroup() %>%
+  filter(!is.na(ICI))
+
+# Helper for weighted mean with CI
+svy_mean_ci <- function(dat, value, weight) {
+  des <- svydesign(ids = ~1, weights = as.formula(paste0("~", weight)), data = dat)
+  est <- svymean(as.formula(paste0("~", value)), des, na.rm = TRUE)
+  ci <- confint(est)
+  tibble(
+    Mean = as.numeric(est),
+    SE = as.numeric(SE(est)),
+    CI_low = ci[1, 1],
+    CI_high = ci[1, 2],
+    n_unw = nrow(dat),
+    w_sum = sum(dat[[weight]], na.rm = TRUE)
+  )
+}
+
+# Estimate within country x wave x cohort
+cell_estimates <- wvs_prepped %>%
+  group_by(Country_Name, COUNTRY_ALPHA, WAVE, Cohort) %>%
+  group_modify(~ svy_mean_ci(.x, value = "ICI", weight = "S017")) %>%
+  ungroup()
+
+# Pool to country x cohort by weighting cell means with cell weights
+pooled_estimates <- cell_estimates %>%
+  group_by(Country_Name, COUNTRY_ALPHA, Cohort) %>%
+  summarise(
+    Mean_ICI = sum(Mean * w_sum, na.rm = TRUE) / sum(w_sum, na.rm = TRUE),
+    SE_ICI = sqrt(sum((SE^2 + (Mean - (sum(Mean * w_sum) / sum(w_sum)))^2) *
+                        (w_sum / sum(w_sum))^2, na.rm = TRUE)),
+    n_unw = sum(n_unw, na.rm = TRUE),
+    w_sum = sum(w_sum, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    CI_low = pmax(Mean_ICI - 1.96 * SE_ICI, 0),
+    CI_high = pmin(Mean_ICI + 1.96 * SE_ICI, 1)
+  ) %>%
+  arrange(Country_Name, Cohort)
+
+# Plot
+palette_cohorts <- c("Democratic"="#3b82f6","Transitional"="#a78bfa","Authoritarian"="#94a3b8")
+
+p_ici <- ggplot(pooled_estimates,
+                aes(x = Country_Name, y = Mean_ICI, fill = Cohort)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75, color = "white") +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high),
+                position = position_dodge(width = 0.8), width = 0.15, linewidth = 0.5) +
+  scale_fill_manual(values = palette_cohorts) +
+  coord_cartesian(ylim = c(0.5, 1)) +
+  labs(
+    x = NULL,
+    y = "Institutional Confidence Index, 0 to 1, higher is more confidence",
+    fill = NULL,
+    title = "Institutional confidence by cohort and country",
+    subtitle = "Within country by wave by cohort estimates pooled to country by cohort using survey weights",
+    caption = "WVS Time Series 1981 to 2022. Items: E069_07 Parliament, E069_12 Parties, E069_11 Government, E069_08 Civil service, E069_17 Courts, E069_64 Elections. Responses recoded so higher means more confidence."
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(face = "bold")
+  )
+
+dir.create("figures", showWarnings = FALSE)
+ggsave("figures/ici_by_cohort_country.pdf", p_ici, width = 9.5, height = 6.5, device = cairo_pdf)
+
+# Quick country specific gaps for Korea and Taiwan
+gap_fun <- function(df_country) {
+  df_country <- df_country %>% mutate(Cohort_re = relevel(Cohort, ref = "Authoritarian"))
+  des_c <- svydesign(ids = ~1, weights = ~S017, data = df_country)
+  fit <- svyglm(ICI ~ Cohort_re, design = des_c)
+  est <- summary(fit)$coefficients
+  tibble(
+    Country_Name = unique(df_country$Country_Name),
+    Gap_Dem_vs_Auth = est["Cohort_reDemocratic", "Estimate"],
+    SE = est["Cohort_reDemocratic", "Std. Error"],
+    CI_low = Gap_Dem_vs_Auth - 1.96 * SE,
+    CI_high = Gap_Dem_vs_Auth + 1.96 * SE
+  )
+}
+
+gap_table_ici <- wvs_prepped %>%
+  filter(COUNTRY_ALPHA %in% c("KOR","TWN")) %>%
+  group_by(Country_Name) %>%
+  group_modify(~ gap_fun(.x)) %>%
+  ungroup()
+
+print(pooled_estimates)
+print(gap_table_ici)
+
+
+# ---------------------------
+# Significance testing
+# ---------------------------
+
+library(survey)
+
+# Function: estimate Democratic vs Authoritarian gap in ICI
+gap_fun <- function(df_country) {
+  df_country <- df_country %>% 
+    mutate(Cohort = relevel(Cohort, ref = "Authoritarian"))
+  
+  des_c <- svydesign(ids = ~1, weights = ~S017, data = df_country)
+  fit <- svyglm(ICI ~ Cohort, design = des_c)
+  est <- summary(fit)$coefficients
+  
+  tibble(
+    Country_Name = unique(df_country$Country_Name),
+    Gap_Dem_vs_Auth = est["CohortDemocratic", "Estimate"],
+    SE = est["CohortDemocratic", "Std. Error"],
+    CI_low = Gap_Dem_vs_Auth - 1.96 * SE,
+    CI_high = Gap_Dem_vs_Auth + 1.96 * SE,
+    p_value = est["CohortDemocratic", "Pr(>|t|)"]
+  )
+}
+
+# Run for Korea and Taiwan (or all countries if you like)
+gap_table <- wvs_prepped %>%
+  #filter(COUNTRY_ALPHA %in% c("KOR","TWN")) %>%
+  group_by(Country_Name) %>%
+  group_modify(~ gap_fun(.x)) %>%
+  ungroup()
+
+gap_table <- gap_table %>%
+  mutate(sig_95 = ifelse(CI_low > 0 | CI_high < 0, "yes", "no"))
+
+
+print(gap_table)
+
+
+
+# ----------------------------
+# Wave-balanced pooling
+# ----------------------------
+
+# Step A: Compute weighted mean within each country × wave × cohort cell (same as before)
+cell_estimates <- wvs_prepped %>%
+  group_by(Country_Name, COUNTRY_ALPHA, WAVE, Cohort) %>%
+  group_modify(~ svy_mean_ci(.x, value = "ICI", weight = "S017")) %>%
+  ungroup()
+
+# Step B: Pool across waves with equal weight per wave (not weighted by sample size)
+pooled_estimates_wavebalanced <- cell_estimates %>%
+  group_by(Country_Name, COUNTRY_ALPHA, Cohort) %>%
+  summarise(
+    Mean_ICI = mean(Mean, na.rm = TRUE),
+    SE_ICI   = sqrt(mean(SE^2, na.rm = TRUE) + var(Mean, na.rm = TRUE)), # rough conservative combo
+    n_cells  = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    CI_low = pmax(Mean_ICI - 1.96 * SE_ICI, 0),
+    CI_high = pmin(Mean_ICI + 1.96 * SE_ICI, 1)
+  ) %>%
+  arrange(Country_Name, Cohort)
+
+# ----------------------------
+# Plot (wave-balanced)
+# ----------------------------
+p_ici_bal <- ggplot(pooled_estimates_wavebalanced,
+                aes(x = Country_Name, y = Mean_ICI, fill = Cohort)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.75, color = "white") +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high),
+                position = position_dodge(width = 0.8), width = 0.15, linewidth = 0.5) +
+  scale_fill_manual(values = palette_cohorts) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = NULL,
+    y = "Institutional Confidence Index (0–1, higher = more confidence)",
+    fill = NULL,
+    title = "Institutional confidence by cohort and country (wave-balanced)",
+    subtitle = "Each wave contributes equally; within-wave estimates weighted by S017",
+    caption = "World Values Survey pooled waves. ICI built from E069 items. Wave-balanced aggregation."
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(face = "bold")
+  )
+
+ggsave("figures/ici_by_cohort_country_wavebalanced.pdf",
+       p_ici_bal, width = 9.5, height = 6.5, device = cairo_pdf)
+
+# ----------------------------
+# Compare pooled vs wave-balanced
+# ----------------------------
+print(pooled_estimates)                 # respondent-weighted pooled
+print(pooled_estimates_wavebalanced)    # wave-balanced
+
+
+```
+
